@@ -18,6 +18,12 @@ Ergodika transforms chaotic market data into real-time visual and sonic intellig
 - 🇨🇳 [中文](lang/README.zh.md)
 - 🇰🇷 [한국어](lang/README.ko.md)
 
+## For developers
+
+Senior full-stack architecture brief (how Ergodika is engineered):
+
+- [Ergodika for Senior Full-Stack Developers](docs/ERGODIKA_FOR_SENIOR_FULLSTACK.md)
+
 ## Product highlights
 
 - Real-time cockpit for crypto spot market monitoring
