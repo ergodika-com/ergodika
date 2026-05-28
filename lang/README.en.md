@@ -6,10 +6,10 @@
 
 [English](README.en.md) | [Italiano](README.it.md) | [Русский](README.ru.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-## The sensory future of trading
+## Outhear the market before the crowd reacts
 
-Ergodika is a desktop-first financial cockpit built for real-time market perception.
-Instead of adding more chart noise, it helps you read market structure quickly with a clear visual system and audio-assisted awareness.
+Ergodika transforms chaotic market data into real-time visual and sonic intelligence.
+Hear pressure shifts, read structure faster, and act with conviction when seconds matter.
 
 ## What you get
 

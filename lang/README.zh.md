@@ -6,10 +6,10 @@
 
 [English](README.en.md) | [Italiano](README.it.md) | [Русский](README.ru.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-## 交易感知的新未来
+## 在人群反应前，先听见市场
 
-Ergodika 是一个桌面优先的金融驾驶舱，面向实时市场感知。
-它通过清晰的可视化与音频辅助信号，减少信息噪音，帮助你更快理解市场结构。
+Ergodika 将混乱的市场数据转化为实时的可视化与声音 intelligence。
+先听见压力变化，更快读懂结构，在秒级窗口中更果断地行动。
 
 ## 最终用户可获得的能力
 

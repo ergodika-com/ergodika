@@ -6,17 +6,17 @@
 ![Market Data](https://img.shields.io/badge/Market%20Data-Real%20Time-f59e0b?style=for-the-badge)
 ![Mode](https://img.shields.io/badge/Mode-Read%20Only-9333ea?style=for-the-badge)
 
-**Stop chasing candles. Start sensing market pressure in real time.**
+**Outhear the market before the crowd reacts.**
 
-Ergodika is the desktop cockpit built for traders who want speed, clarity, and control: real-time flow intelligence, multi-signal context, and sensory feedback designed to cut noise and surface what matters first.
+Ergodika transforms chaotic market data into real-time visual and sonic intelligence, so you can hear pressure shifts, read structure faster, and act with conviction when seconds matter.
 
 ## Select your language
 
-[![English](https://img.shields.io/badge/English-README.en.md-2563eb?style=for-the-badge)](README.en.md)
-[![Italiano](https://img.shields.io/badge/Italiano-README.it.md-16a34a?style=for-the-badge)](README.it.md)
-[![Русский](https://img.shields.io/badge/Русский-README.ru.md-f59e0b?style=for-the-badge)](README.ru.md)
-[![中文](https://img.shields.io/badge/中文-README.zh.md-9333ea?style=for-the-badge)](README.zh.md)
-[![한국어](https://img.shields.io/badge/한국어-README.ko.md-ec4899?style=for-the-badge)](README.ko.md)
+[![🇬🇧 English](https://img.shields.io/badge/%F0%9F%87%AC%F0%9F%87%A7%20English-lang%2FREADME.en.md-2563eb?style=for-the-badge)](lang/README.en.md)
+[![🇮🇹 Italiano](https://img.shields.io/badge/%F0%9F%87%AE%F0%9F%87%B9%20Italiano-lang%2FREADME.it.md-16a34a?style=for-the-badge)](lang/README.it.md)
+[![🇷🇺 Русский](https://img.shields.io/badge/%F0%9F%87%B7%F0%9F%87%BA%20%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-lang%2FREADME.ru.md-f59e0b?style=for-the-badge)](lang/README.ru.md)
+[![🇨🇳 中文](https://img.shields.io/badge/%F0%9F%87%A8%F0%9F%87%B3%20%E4%B8%AD%E6%96%87-lang%2FREADME.zh.md-9333ea?style=for-the-badge)](lang/README.zh.md)
+[![🇰🇷 한국어](https://img.shields.io/badge/%F0%9F%87%B0%F0%9F%87%B7%20%ED%95%9C%EA%B5%AD%EC%96%B4-lang%2FREADME.ko.md-ec4899?style=for-the-badge)](lang/README.ko.md)
 
 ## Product highlights
 
@@ -29,11 +29,11 @@ Ergodika is the desktop cockpit built for traders who want speed, clarity, and c
 
 ## Quick links
 
-- [English documentation](README.en.md)
-- [Italian documentation](README.it.md)
-- [Russian documentation](README.ru.md)
-- [Chinese documentation](README.zh.md)
-- [Korean documentation](README.ko.md)
+- [English documentation](lang/README.en.md)
+- [Italian documentation](lang/README.it.md)
+- [Russian documentation](lang/README.ru.md)
+- [Chinese documentation](lang/README.zh.md)
+- [Korean documentation](lang/README.ko.md)
 
 ## Important notice
 
