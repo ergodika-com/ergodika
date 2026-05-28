@@ -12,18 +12,11 @@ Ergodika transforms chaotic market data into real-time visual and sonic intellig
 
 ## Select your language
 
-<details>
-<summary><b>🌐 Choose language</b></summary>
-
-| | |
-|:--|:--|
-| 🇬🇧 | [English](lang/README.en.md) |
-| 🇮🇹 | [Italiano](lang/README.it.md) |
-| 🇷🇺 | [Русский](lang/README.ru.md) |
-| 🇨🇳 | [中文](lang/README.zh.md) |
-| 🇰🇷 | [한국어](lang/README.ko.md) |
-
-</details>
+- 🇬🇧 [English](lang/README.en.md)
+- 🇮🇹 [Italiano](lang/README.it.md)
+- 🇷🇺 [Русский](lang/README.ru.md)
+- 🇨🇳 [中文](lang/README.zh.md)
+- 🇰🇷 [한국어](lang/README.ko.md)
 
 ## Product highlights
 
