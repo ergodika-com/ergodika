@@ -14,6 +14,21 @@
 
 **一句话：** 桌面端市场驾驶舱，高密度可视化、Binance 实时数据，以及将订单流压力 **声音化** 的桌面音频 MVP（CVD → 声像，sentiment → 音高），对交易所保持只读。
 
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 桌面壳 | **Tauri 2**（原生 WebView） |
+| 前端 | **SvelteKit 2**、**Svelte 5**、**TypeScript**、**Tailwind 4** |
+| 后端 | **Rust** — `live_feed/`、`credentials/`、`audio_engine/` |
+| 图表 | **lightweight-charts** v5 |
+| 音频 | **cpal**、无锁 **SPSC**（`rtrb`）、Rust 实时 DSP |
+| 行情 | **Binance 现货**（WSS + REST；可选只读用户流） |
+| 安全 | **AES-256-GCM** 保险库、系统钥匙串 |
+| 质量 | **Vitest**、版本化 **IPC 契约** + Rust 对齐测试 |
+
+**文档范围：** 本公开文档库中的架构与工程决策。应用源码在私有 `ergodika_app` 仓库；本文便于评审者在无专有代码访问时评估系统设计。
+
 ---
 
 ## 目录
@@ -26,10 +41,12 @@
 | [IPC 契约](#ipc-契约rust--typescript) | 前后端对齐 |
 | [行情接入](#行情接入桌面-vs-浏览器) | Binance、空状态、订单流 |
 | [UI 架构](#ui-架构svelte) | Quartet、V-Matrix、图表 |
-| [音频引擎](#音频引擎桌面-mvp) | 线程与映射 |
+| [音频引擎](#音频引擎桌面-mvp) | 线程、DSP 管线、映射 |
 | [安全模型](#安全模型) | Vault、只读账户 |
 | [测试与 DX](#测试与-dx) | 质量保障 |
 | [工程亮点](#工程亮点) | 可扩展性 |
+| [工程挑战](#已解决的工程挑战) | 难点与权衡 |
+| [能力体现](#项目体现的能力) | 面试/评审视角 |
 | [路线图](#技术路线图简述) | 后续计划 |
 
 ---
@@ -123,17 +140,57 @@
 
 **订单流（已交付）：** CVD、OBI、VWAP Anchor、Kinetic Impact、节拍网格 / Beat Bang。
 
+Rust：`order_flow_delta_analyzer`、`cvd_session_scale`、`vwap_session`、`kinetic_impact_sensor`、`tape_activity`。  
+Web 对齐：`orderFlowMath.ts`、`cvdSessionScale.ts`、`vwapSession.ts`、`kineticImpactSensor.ts`、`tapeActivitySensor.ts`。
+
 ---
 
 ## UI 架构（Svelte）
 
-SvelteKit 2、Svelte 5、Tailwind 4。Store 管理高频快照；`lightweight-charts` v5；`vmatrixSmooth.ts` 仅视觉平滑。界面文案为 **英文**。
+- SvelteKit 2、Svelte 5、Tailwind 4，超暗玻璃拟态主题。
+- **QUARTET 驾驶舱：** 2×2 四品种监控；侧栏控制周期、K 线间隔与 Sound。
+- **V-Matrix HUD：** 六种归一化市场维度，仅由 **实时快照** 经 `computeVMatrixSnapshot` 计算，主路径无模拟 tick 循环。
+- Store：`quartet.ts`、`feedController`、`audioEngine.ts`、`masterTempo.ts`。
+- 图表：`lightweight-charts` v5；OHLC 引导上限约 1 万根 K 线。
+- `vmatrixSmooth.ts` 仅作视觉平滑，不替代真实行情。
+- 诊断：`RuntimeDiagnostics.svelte`。界面文案为 **英文**。
+- 槽位：通过 `quartetChartSlots` 与 manifest 统一布线。
 
 ---
 
 ## 音频引擎（桌面 MVP）
 
-**浏览器演示无声音。** 市场线程更新 pan/pitch；SPSC 队列；渲染线程 lerp；cpal 仅 pull。音高 ← sentiment；声像 ← CVD（Blumlein）。
+**浏览器演示无声音。** 全部实时 **音频 DSP** 在 Rust（`src-tauri/src/audio_engine/`）。Svelte 层 **与音频无关**：仅 IPC 控制（`audioEngine.ts`、Sound 页）；`src/lib/audio/bridge.ts` 仅作契约对齐 / DEV 日志，不在 JS 中合成。
+
+| 组件 | 职责 |
+|------|------|
+| 市场线程 | 由订单流指标更新原子 pan/pitch 目标 |
+| SPSC `rtrb` | ~112 ms 缓冲；不阻塞回调 |
+| 渲染线程 | pitch/pan lerp ~320 ms，正弦振荡器 |
+| cpal 回调 | 仅 pull，软限幅 |
+| 混音器 | 4 路 ÷4，静音渐变 ~18 ms |
+
+### 音频 DSP 管线
+
+```
+live_feed / 订单流 (Rust)
+    → 原子 pan & pitch 目标
+    → 无锁 SPSC (~112 ms)
+    → 渲染：lerp + 正弦声部
+    → 4 路混音 + 软限幅
+    → cpal pull（回调内无锁、无堆分配）
+```
+
+| DSP 层 | 位置 | 说明 |
+|--------|------|------|
+| 映射契约 | `audio_mapping.json`、`docs/AUDIO_ENGINE.md` | Lane 由产品确认后再实现 |
+| 已上线声化 | sentiment + 基频 → **音高**；CVD → **声像**（Blumlein） | 与 HUD 所需指标保持 Rust 侧一致 |
+| 待办 lane | whale、OBI、reverb | 写在 mapping JSON；未进入当前 MVP 混音 |
+| UI 控制 | `stores/audioEngine.ts`、主音量 | 仅桌面 IPC |
+
+**实时规则：** 将 cpal 回调视为硬 RT 路径（仅 pull）；市场/UI 线程不得等待音频；CVD、OBI、VWAP 保持 **视听一致**。
+
+**私有文档：** `AUDIO_ENGINE.md`、`ARCHITECTTURA_FEED_UI.md`。空间化与 lane 设计参考：Curtis Roads、Julius O. Smith III。
 
 ---
 
@@ -153,10 +210,37 @@ Vitest、`cargo test --lib ipc_contract`、`npm run start` / `start:web`。
 
 ## 工程亮点
 
-- 行情接入、UI、DSP 分层隔离，便于独立演进。
-- 无锁音频路径，适应行情突发。
-- 主路径拒绝假 tick，保护用户信任。
-- 类型化 IPC + 对齐测试，降低 TS/Rust 协作成本。
+- **可扩展性：** 行情接入、UI、DSP 分层，可独立演进。
+- **实时性：** WebSocket 突发下无锁音频；UI 约 20 Hz 更新且不伪造价格。
+- **产品诚信：** 诚实空状态与诊断，错误时不生成合成 K 线。
+- **跨语言 DX：** schema-first IPC 与 Rust ↔ TypeScript 自动对齐测试。
+- **可运维性：** 运行时诊断（帧龄、 ingest 心跳）。
+- **安全：** 加密保险库；交易所交互限定为只读监控权限。
+
+---
+
+## 已解决的工程挑战
+
+| 挑战 | 方案 |
+|------|------|
+| WS 吞吐 vs UI 帧预算 | Rust 全速率计算；IPC **签名去重** + **时间批处理**（约 20 Hz） |
+| 跨运行时一致性 | 单一 Svelte 包；`feedController` 切换 `ipc` / `web` / `idle` |
+| 视听一致 | Rust 订单流指标；浏览器 TS 对齐模块；音频与 HUD 同源（已实现部分） |
+| 硬实时音频 | 市场线程原子量 → **SPSC** → 渲染 lerp → cpal **仅 pull**（回调无锁、无堆分配） |
+| 无数据时的信任 | 首 tick 前 `price = 0`；过期/错误走诊断而非 mock 蜡烛 |
+| 桌面可移植 | Tauri 原生壳；WSL keyring 回退；ALSA 路径见私有运维文档 |
+
+---
+
+## 项目体现的能力
+
+- **全栈系统设计：** 单 UI 代码库支撑桌面与静音 Web 演示，后端边界清晰。
+- **Rust 系统编程：** 并发行情接入、加密 vault、实时 DSP 与混音。
+- **TypeScript/Svelte 产品工程：** 响应式 store、图表集成、高密度信息 UX。
+- **API 集成：** Binance 现货 WSS/REST、可选签名用户流、K 线引导与间隔治理。
+- **契约驱动开发：** 版本化 IPC、CI 对齐测试、camelCase/snake_case 规范。
+- **领域建模：** CVD、OBI、VWAP Anchor、动能/ tape 信号等可测模块。
+- **应用型音频 DSP：** 声化映射、空间声像法则、高负载下线程安全缓冲交接。
 
 ---
 

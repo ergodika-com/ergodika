@@ -14,6 +14,21 @@
 
 **한 줄 요약:** 데스크톱 마켓 콕핏, 고밀도 시각 분석, Binance 라이브 수집, 오더플로우 압력을 **소리로 표현**하는 데스크톱 오디오 MVP(CVD → pan, sentiment → pitch), 거래소에는 read-only.
 
+## 기술 스택
+
+| 계층 | 기술 |
+|------|------|
+| 데스크톱 | **Tauri 2**(네이티브 WebView) |
+| 프론트 | **SvelteKit 2**, **Svelte 5**, **TypeScript**, **Tailwind 4** |
+| 백엔드 | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
+| 차트 | **lightweight-charts** v5 |
+| 오디오 | **cpal**, lock-free **SPSC**(`rtrb`), Rust 실시간 DSP |
+| 시장 데이터 | **Binance Spot**(WSS+REST, 선택적 read-only user stream) |
+| 보안 | **AES-256-GCM** vault, OS keyring |
+| 품질 | **Vitest**, 버전 IPC 계약 + Rust 정렬 테스트 |
+
+**문서 범위:** 공개 문서 저장소의 아키텍처·엔지니어링 결정. 앱 소스는 비공개 `ergodika_app`에 있으며, 본 brief는 코드 없이 시스템 설계를 평가할 수 있게 합니다.
+
 ---
 
 ## 목차
@@ -26,10 +41,12 @@
 | [IPC 계약](#ipc-계약rust--typescript) | FE/백엔드 정렬 |
 | [마켓 수집](#마켓-수집-데스크톱-vs-브라우저) | Binance, 빈 상태 |
 | [UI 아키텍처](#ui-아키텍처svelte) | Quartet, V-Matrix |
-| [오디오 엔진](#오디오-엔진-데스크톱-mvp) | 스레드, 매핑 |
+| [오디오 엔진](#오디오-엔진-데스크톱-mvp) | 스레드, DSP 파이프라인, 매핑 |
 | [보안 모델](#보안-모델) | Vault, read-only |
 | [테스트와 DX](#테스트와-dx) | 품질 도구 |
 | [엔지니어링 하이라이트](#엔지니어링-하이라이트) | 확장성 |
+| [엔지니어링 과제](#해결한-엔지니어링-과제) | 난제와 트레이드오프 |
+| [역량](#프로젝트가-보여주는-역량) | 리뷰·면접 관점 |
 | [로드맵](#기술-로드맵-요약) | 다음 단계 |
 
 ---
@@ -118,19 +135,59 @@
 | `web` | `webBinanceHub` |
 | `idle` | 빈 상태 |
 
-**오더플로우:** CVD, OBI, VWAP Anchor, Kinetic Impact, Beat Bang.
+**오더플로우(출시):** CVD, OBI, VWAP Anchor, Kinetic Impact, tape activity / Beat Bang.
+
+Rust: `order_flow_delta_analyzer`, `cvd_session_scale`, `vwap_session`, `kinetic_impact_sensor`, `tape_activity`.  
+Web parity: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, `kineticImpactSensor.ts`, `tapeActivitySensor.ts`.
 
 ---
 
 ## UI 아키텍처 (Svelte)
 
-SvelteKit 2, Svelte 5, Tailwind 4. `lightweight-charts` v5. UI 문구는 **영어**.
+- SvelteKit 2, Svelte 5, Tailwind 4, ultra-dark glassmorphism.
+- **QUARTET 콕핏:** 2×2 네 심볼; timeframe·interval·Sound 레일.
+- **V-Matrix HUD:** 여섯 정규화 시장 감각, **라이브 스냅샷**만으로 `computeVMatrixSnapshot` — 메인 경로에 시뮬 tick 없음.
+- Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
+- 차트: `lightweight-charts` v5; OHLC 부트스트랩 ~10k.
+- `vmatrixSmooth.ts`는 시각 폴리시만.
+- 진단: `RuntimeDiagnostics.svelte`. UI 문구 **영어**.
+- 슬롯: `quartetChartSlots` + manifest.
 
 ---
 
 ## 오디오 엔진 (데스크톱 MVP)
 
-**브라우저 데모는 무음.** pitch ← sentiment; pan ← CVD(Blumlein). SPSC + render lerp + cpal pull.
+**브라우저 데모는 무음.** 실시간 **오디오 DSP**는 Rust(`src-tauri/src/audio_engine/`)에서만 동작합니다. Svelte는 **오디오 비의존**: IPC 제어만(`audioEngine.ts`, Sound 탭); `src/lib/audio/bridge.ts`는 계약 정렬 / DEV 로그용이며 JS 합성은 없습니다.
+
+| 구성 | 역할 |
+|------|------|
+| 마켓 스레드 | 오더플로우 지표로 원자 pan/pitch 타깃 갱신 |
+| SPSC `rtrb` | ~112 ms 버퍼; 콜백 비차단 |
+| 렌더 스레드 | pitch/pan lerp ~320 ms, `sin` 오실레이터 |
+| cpal 콜백 | pull 전용, 소프트 리미터 |
+| 믹서 | 4성부 ÷4, 뮤트 램프 ~18 ms |
+
+### 오디오 DSP 파이프라인
+
+```
+live_feed / order-flow (Rust)
+    → 원자 pan & pitch 타깃
+    → lock-free SPSC (~112 ms)
+    → 렌더: lerp + 사인 보이스
+    → 4성부 믹서 + 소프트 리미터
+    → cpal pull (락·힙 할당 없음)
+```
+
+| DSP 계층 | 위치 | 비고 |
+|----------|------|------|
+| 매핑 계약 | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | lane은 제품 결정 후 구현 |
+| 출시 sonification | sentiment + fundamental → **pitch**; CVD → **pan**(Blumlein) | HUD와 동일 Rust 지표(필요 시) |
+| 백로그 lane | whale, OBI, reverb | mapping JSON에만; 현재 MVP 믹스 미포함 |
+| UI 제어 | `stores/audioEngine.ts`, 마스터 볼륨 | 데스크톱 IPC만 |
+
+**실시간 규칙:** cpal 콜백은 하드 RT 경로(pull만); 마켓/UI를 오디오에 막지 않음; CVD·OBI·VWAP **시청각 일치**.
+
+**비공개 문서:** `AUDIO_ENGINE.md`, `ARCHITECTTURA_FEED_UI.md`. 공간화·lane 설계 참고: Curtis Roads, Julius O. Smith III.
 
 ---
 
@@ -150,10 +207,37 @@ Vitest, `cargo test --lib ipc_contract`, `npm run start` / `start:web`.
 
 ## 엔지니어링 하이라이트
 
-- ingestion/UI/DSP 레이어 분리.
-- 버스트 환경에서 lock-free 오디오.
-- 가짜 tick 없는 메인 경로.
-- 타입 IPC + 정렬 테스트.
+- **확장성:** ingestion·UI·DSP 레이어 독립 진화.
+- **실시간:** WS 버스트에서 lock-free 오디오; UI ~20 Hz, 가격 조작 없음.
+- **제품 무결성:** 정직한 빈 상태·진단, 오류 시 합성 OHLC 없음.
+- **DX:** schema-first IPC, Rust↔TS 자동 정렬 테스트.
+- **운영:** 런타임 진단(프레임 age, ingest heartbeat).
+- **보안:** 암호화 vault; 거래소 read-only 모니터링 scope.
+
+---
+
+## 해결한 엔지니어링 과제
+
+| 과제 | 접근 |
+|------|------|
+| WS 처리량 vs UI | Rust 전속도 계산; IPC **서명 dedup** + **배치**(~20 Hz) |
+| 런타임 parity | 단일 Svelte 번들; `feedController` `ipc`/`web`/`idle` |
+| 시청각 일치 | Rust order-flow; web TS parity; 출시 범위에서 동일 소스 |
+| 하드 RT 오디오 | atomics → **SPSC** → lerp → cpal **pull only**(콜백 lock/alloc 없음) |
+| 데이터 부재 신뢰 | 첫 tick 전 `price = 0`; stale는 진단, mock 캔들 아님 |
+| 이식성 | Tauri; WSL keyring fallback; ALSA는 비공개 ops 문서 |
+
+---
+
+## 프로젝트가 보여주는 역량
+
+- **풀스택 시스템 설계:** 단일 UI로 데스크톱+무음 웹, 백엔드 경계 명확.
+- **Rust:** 동시 ingestion, 암호 vault, 실시간 DSP/믹서.
+- **TypeScript/Svelte:** 반응형 store, 차트, 고밀도 UX.
+- **API 통합:** Binance Spot WSS/REST, 선택 signed user stream.
+- **계약 주도 개발:** 버전 IPC, CI alignment tests.
+- **도메인 모델링:** CVD, OBI, VWAP Anchor, kinetic/tape 신호.
+- **응용 오디오 DSP:** sonification mapping, spatial pan, thread-safe handoff.
 
 ---
 

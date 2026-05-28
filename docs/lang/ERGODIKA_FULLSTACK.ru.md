@@ -14,6 +14,21 @@
 
 **Суть:** desktop cockpit с плотной визуальной аналитикой, live Binance и MVP аудио, который **озвучивает** давление order flow (CVD → pan, sentiment → pitch) в режиме read-only к бирже.
 
+## Технологический стек
+
+| Слой | Технологии |
+|------|------------|
+| Desktop | **Tauri 2** (нативная WebView) |
+| Frontend | **SvelteKit 2**, **Svelte 5**, **TypeScript**, **Tailwind 4** |
+| Backend | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
+| Графики | **lightweight-charts** v5 |
+| Аудио | **cpal**, lock-free **SPSC** (`rtrb`), realtime DSP в Rust |
+| Рынок | **Binance Spot** (WSS + REST; опциональный read-only user stream) |
+| Безопасность | Vault **AES-256-GCM**, OS keyring |
+| Качество | **Vitest**, версионированный **IPC** + alignment-тесты |
+
+**Область документа:** архитектурные решения в публичном репозитории документации. Исходники приложения — в приватном `ergodika_app`; brief позволяет оценить дизайн без доступа к коду.
+
 ---
 
 ## Содержание
@@ -26,10 +41,12 @@
 | [IPC-контракт](#ipc-контракт-rust--typescript) | Связь FE и backend |
 | [Ingestion](#ingestion-рынка-desktop-vs-browser) | Binance, пустое состояние |
 | [UI](#архитектура-ui-svelte) | Quartet, V-Matrix, графики |
-| [Audio](#audio-engine-mvp-desktop) | Потоки, mapping |
+| [Audio](#audio-engine-mvp-desktop) | Потоки, DSP, mapping |
 | [Безопасность](#модель-безопасности) | Vault, read-only |
 | [Тесты и DX](#тестирование-и-dx) | Инструменты |
 | [Highlights](#ключевые-инженерные-плюсы) | Масштабируемость |
+| [Инженерные задачи](#решенные-инженерные-задачи) | Сложные проблемы |
+| [Навыки](#демонстрируемые-навыки) | Что видно при review |
 | [Roadmap](#краткий-roadmap) | Дальше |
 
 ---
@@ -121,19 +138,59 @@
 | `web` | `webBinanceHub` |
 | `idle` | Пустое состояние |
 
-**Order flow:** CVD, OBI, VWAP Anchor, Kinetic Impact, Beat Bang.
+**Order flow (в проде):** CVD, OBI, VWAP Anchor, Kinetic Impact, tape activity / Beat Bang.
+
+Rust: `order_flow_delta_analyzer`, `cvd_session_scale`, `vwap_session`, `kinetic_impact_sensor`, `tape_activity`.  
+Паритет web: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, `kineticImpactSensor.ts`, `tapeActivitySensor.ts`.
 
 ---
 
 ## Архитектура UI (Svelte)
 
-SvelteKit 2, Svelte 5, Tailwind 4. Store + `lightweight-charts` v5. Smoothing только визуальный. Диагностика: Last frame, Snapshot age. UI на **английском**.
+- SvelteKit 2, Svelte 5, Tailwind 4, ultra-dark glassmorphism.
+- **QUARTET cockpit:** сетка 2×2 на четыре символа; rail для timeframe, interval, Sound.
+- **V-Matrix HUD:** шесть нормализованных «чувств» рынка из **живых snapshot** (`computeVMatrixSnapshot`) — без симулированного tick-loop на main path.
+- Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
+- Графики: `lightweight-charts` v5; bootstrap OHLC до ~10k баров.
+- Smoothing: `vmatrixSmooth.ts` — только визуальный polish.
+- Диагностика: `RuntimeDiagnostics.svelte`. UI на **английском**.
+- **Слоты:** wiring через `quartetChartSlots` + manifest.
 
 ---
 
 ## Audio engine (MVP desktop)
 
-Браузер **без звука**. Потоки market/render, очередь SPSC, callback только pull. Pitch ← sentiment; pan ← CVD (Blumlein).
+Браузер **без звука.** Весь realtime **audio DSP** в Rust (`src-tauri/src/audio_engine/`). Svelte **audio-agnostic**: только IPC (`audioEngine.ts`, вкладка Sound); `src/lib/audio/bridge.ts` — паритет контракта / DEV-лог, без синтеза в JS.
+
+| Узел | Роль |
+|------|------|
+| Поток market | Атомарные цели pan/pitch из order flow |
+| SPSC `rtrb` | ~112 ms; не блокирует callback |
+| Поток render | Lerp pitch/pan ~320 ms, осцилляторы `sin` |
+| Callback cpal | Только pull, мягкий limiter |
+| Mixer | 4 голоса ÷ 4, mute ~18 ms |
+
+### Конвейер audio DSP
+
+```
+live_feed / order-flow (Rust)
+    → атомарные pan & pitch
+    → lock-free SPSC (~112 ms)
+    → render: lerp + синусоиды
+    → mixer 4 голосов + limiter
+    → cpal pull (без lock и heap alloc)
+```
+
+| Слой DSP | Где | Заметки |
+|----------|-----|---------|
+| Контракт mapping | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | Lane по решению продукта |
+| В проде | sentiment + fundamental → **pitch**; CVD → **pan** (Blumlein) | Паритет с HUD на тех же метриках |
+| Backlog | whale, OBI, reverb | В JSON mapping; не в активном MVP mix |
+| UI | `stores/audioEngine.ts`, master volume | Только desktop IPC |
+
+**Realtime:** callback cpal — жёсткий RT-путь (только pull); не блокировать market/UI; **визуально-звуковой паритет** CVD, OBI, VWAP.
+
+**Приватная документация:** `AUDIO_ENGINE.md`, `ARCHITECTTURA_FEED_UI.md`. Референсы DSP: Curtis Roads, Julius O. Smith III.
 
 ---
 
@@ -153,10 +210,37 @@ Vitest, `cargo test --lib ipc_contract`, `npm run start` / `start:web`.
 
 ## Ключевые инженерные плюсы
 
-- Изолированные слои ingestion / UI / DSP.
-- Lock-free audio под burst.
-- Честное пустое состояние.
-- Типизированный IPC.
+- **Масштабируемость:** независимая эволюция ingestion, UI и DSP.
+- **Realtime:** lock-free audio при burst WS; UI ~20 Hz без выдуманных цен.
+- **Целостность продукта:** честное пустое состояние вместо синтетического OHLC при ошибках.
+- **DX:** schema-first IPC с автоматическими alignment-тестами Rust ↔ TypeScript.
+- **Операции:** runtime-диагностика (возраст кадра, heartbeat ingest).
+- **Безопасность:** шифрованный vault; read-only scopes к бирже.
+
+---
+
+## Решенные инженерные задачи
+
+| Задача | Решение |
+|--------|---------|
+| WS throughput vs UI | Полная частота расчётов в Rust; IPC **dedup по подписи** + **batch** (~20 Hz) |
+| Паритет runtime | Один Svelte bundle; `feedController`: `ipc` / `web` / `idle` |
+| Визуал ↔ звук | Order-flow метрики в Rust; TS parity для web; audio из тех же источников |
+| Hard-realtime audio | Atomics → **SPSC** → lerp → **pull-only** cpal (без lock/alloc в callback) |
+| Доверие без данных | `price = 0` до первого тика; stale → диагностика, не mock candles |
+| Портативность | Tauri; fallback keyring на WSL; ALSA в приватной ops-документации |
+
+---
+
+## Демонстрируемые навыки
+
+- **Full-stack system design:** desktop + web из одного UI с чёткими границами backend.
+- **Rust:** конкурентный ingestion, криптографический vault, realtime DSP/mixer.
+- **TypeScript/Svelte:** реактивные store, charts, UX высокой плотности информации.
+- **API integration:** Binance Spot WSS/REST, опциональный signed user stream.
+- **Contract-driven dev:** версионированный IPC, CI alignment tests.
+- **Domain modeling:** CVD, OBI, VWAP Anchor, kinetic/tape signals.
+- **Applied audio DSP:** sonification mapping, spatial pan, thread-safe handoff.
 
 ---
 

@@ -14,6 +14,21 @@ Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei m
 
 **Elevator pitch:** Ergodika e un cockpit desktop con analisi visiva ad alta densita, ingestione live Binance e audio MVP che **sonifica** la pressione di order flow (CVD → pan, sentiment → pitch), in modalita read-only verso l'exchange.
 
+## Stack tecnologico
+
+| Layer | Tecnologie |
+|-------|------------|
+| Shell desktop | **Tauri 2** (WebView nativa) |
+| Frontend | **SvelteKit 2**, **Svelte 5**, **TypeScript**, **Tailwind 4** |
+| Backend | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
+| Chart | **lightweight-charts** v5 |
+| Audio | **cpal**, code **SPSC** lock-free (`rtrb`), DSP realtime in Rust |
+| Mercato | **Binance Spot** (WSS + REST; user stream read-only opzionale) |
+| Sicurezza | Vault **AES-256-GCM**, keyring OS |
+| Qualita | **Vitest**, contratto **IPC** versionato + test di allineamento Rust |
+
+**Ambito del documento:** decisioni architetturali in questo repository pubblico. Il codice applicativo vive nel tree privato `ergodika_app`; il brief permette di valutare il design senza accesso al codice proprietario.
+
 ---
 
 ## Indice
@@ -26,10 +41,12 @@ Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei m
 | [Contratto IPC](#contratto-ipc-rust--typescript) | Allineamento FE e backend |
 | [Ingestione mercato](#ingestione-mercato-desktop-vs-browser) | Binance, stato vuoto, order flow |
 | [Architettura UI](#architettura-ui-svelte) | Cockpit Quartet, V-Matrix, chart |
-| [Motore audio](#motore-audio-mvp-desktop) | Thread, mapping, vincoli realtime |
+| [Motore audio](#motore-audio-mvp-desktop) | Thread, pipeline DSP, mapping, realtime |
 | [Sicurezza](#modello-di-sicurezza) | Vault, canale account read-only |
 | [Test e DX](#test-e-dx) | Qualita e tooling |
 | [Highlight](#highlight-orientati-allimpatto) | Perche scala |
+| [Sfide affrontate](#sfide-affrontate) | Problemi difficili e trade-off |
+| [Competenze evidenziate](#competenze-evidenziate) | Cosa dimostra il progetto in review |
 | [Roadmap](#roadmap-tecnica-sintetica) | Prossimi passi |
 
 ---
@@ -59,7 +76,7 @@ Ergodika e un **cockpit desktop-first** (Tauri + SvelteKit + Rust) con **demo br
 
 **Disciplina di throughput:** il calcolo mercato gira a frequenza WS piena in Rust; l'IPC verso la WebView e **deduplicato per firma** e **batchato nel tempo** (~20 Hz) senza inventare prezzi intermedi.
 
-### Come ho strutturato il codice
+### Organizzazione del codice
 
 1. **Backend Rust = fonte di verita** per tick, order flow, vault, audio.
 2. **Frontend Svelte = osservatore reattivo** — niente prezzi inventati; solo snapshot e comandi.
@@ -131,10 +148,12 @@ Parita web: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, ecc.
 ## Architettura UI (Svelte)
 
 - SvelteKit 2, Svelte 5, Tailwind 4, tema ultra-dark.
+- **Cockpit QUARTET:** griglia 2×2 su quattro simboli; rail per timeframe, intervallo e Sound.
+- **HUD V-Matrix:** sei sensi di mercato normalizzati (prezzo, volume, spread, PnL% non realizzato, sentiment, impact) da **snapshot live** con `computeVMatrixSnapshot` — nessun loop di tick simulato sul path principale.
 - Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
-- Chart: `lightweight-charts` v5; bootstrap OHLC ~10k barre max.
-- Smoothing: `vmatrixSmooth.ts` — solo polish visivo.
-- Diagnostica: `RuntimeDiagnostics.svelte`.
+- Chart: `lightweight-charts` v5; bootstrap OHLC ~10k barre; preset intervallo allineati a Binance.
+- Smoothing: `vmatrixSmooth.ts` — solo polish visivo, mai sostituto del feed reale.
+- Diagnostica: `RuntimeDiagnostics.svelte` (Last frame, eta snapshot, Live ingest).
 - Copy UI in **inglese**; documentazione multilingua ammessa.
 - **Slot:** derivare wiring da `quartetChartSlots` + manifest.
 
@@ -142,17 +161,37 @@ Parita web: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, ecc.
 
 ## Motore audio (MVP desktop)
 
-**La demo browser e muta.**
+**La demo browser e muta.** Tutto il **DSP audio** realtime vive in Rust (`src-tauri/src/audio_engine/`). Il frontend e **audio-agnostic**: comandi via IPC (`audioEngine.ts`, tab Sound); `src/lib/audio/bridge.ts` e solo parita contratto / log DEV — nessuna sintesi in JavaScript.
 
 | Pezzo | Ruolo |
 |-------|--------|
-| Thread mercato | Target atomici pan/pitch |
+| Thread mercato | Target atomici pan/pitch da metriche order flow |
 | Coda `rtrb` SPSC | ~112 ms; non blocca il callback |
-| Thread render | Lerp pitch/pan ~320 ms, oscillatore `sin` |
+| Thread render | Lerp pitch/pan ~320 ms, oscillatori `sin` |
 | Callback cpal | Solo pull, limiter morbido |
 | Mixer | 4 voci ÷ 4, mute ~18 ms |
 
-**Mapping spedito:** pitch ← sentiment + fondamentale; pan ← CVD (Blumlein). Lane whale/OBI/reverb in backlog (`audio_mapping.json`).
+### Pipeline DSP audio
+
+```
+live_feed / order-flow (Rust)
+    → target atomici pan e pitch
+    → SPSC lock-free (~112 ms)
+    → render: lerp pitch/pan + onde sinusoidali
+    → mixer 4 voci + limiter morbido
+    → callback cpal pull (no lock, no alloc heap)
+```
+
+| Layer DSP | Dove | Note |
+|-----------|------|------|
+| Contratto mapping | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | Lane definite dal prodotto prima dell'implementazione |
+| Sonificazione spedita | sentiment + fondamentale → **pitch**; CVD → **pan** (Blumlein) | Stesse metriche Rust dell'HUD dove serve parita |
+| Lane in backlog | whale flow, OBI, reverb | In mapping JSON; non nel mix MVP attivo |
+| Controlli UI | `stores/audioEngine.ts`, volume master | Solo IPC desktop |
+
+**Regole realtime:** il callback cpal e un percorso RT rigido — solo pull; non bloccare mercato/UI sull'audio; **parita visivo-sonica** su CVD, OBI, VWAP.
+
+**Doc privata:** `AUDIO_ENGINE.md`, `ARCHITECTTURA_FEED_UI.md`. Riferimenti di design per lane e spazializzazione: Curtis Roads, Julius O. Smith III.
 
 ---
 
@@ -181,11 +220,37 @@ Documentazione repo privato: `CONTINUITA.md`, `AGENT_ONBOARDING.md`, `ARCHITECTT
 
 ## Highlight orientati all'impatto
 
-- **Scalabilita:** layer ingestion, UI, DSP separati.
-- **Realtime:** audio lock-free sotto burst di mercato.
-- **Integrita prodotto:** niente tick finti sul path principale.
-- **DX:** IPC tipizzato + test di allineamento.
-- **Operativita:** diagnostica runtime per triage rapido.
+- **Scalabilita:** layer ingestion, UI e DSP evolvono in modo indipendente.
+- **Realtime:** audio lock-free sotto burst WebSocket; UI a ~20 Hz senza prezzi inventati.
+- **Integrita prodotto:** stato vuoto onesto e diagnostica al posto di OHLC sintetici in errore.
+- **DX cross-language:** IPC schema-first con test automatici Rust ↔ TypeScript.
+- **Operativita:** diagnostica runtime (eta frame, heartbeat ingest) per triage in produzione.
+- **Sicurezza:** vault cifrato; permessi exchange limitati al read-only di monitoraggio.
+
+---
+
+## Sfide affrontate
+
+| Sfida | Approccio |
+|-------|-----------|
+| Throughput WS vs budget UI | Calcolo mercato a frequenza piena in Rust; IPC **deduplicato per firma** e **batchato** (~20 Hz) verso la WebView |
+| Parita tra runtime | Un bundle Svelte; `feedController` commuta `ipc` / `web` / `idle` senza duplicare la logica prodotto |
+| Coerenza visivo-sonica | Metriche order flow in Rust; moduli TS di parita per la demo browser; audio dalle stesse fonti dove spedito |
+| Audio hard-realtime | Thread mercato → atomici → **SPSC** → lerp render → callback cpal **solo pull** (no lock/alloc nel callback) |
+| Fiducia senza dati | `price = 0` fino al primo tick; path stale/errore → diagnostica, non candele mock |
+| Portabilita desktop | Shell Tauri; fallback keyring su WSL; path audio ALSA documentato nel repo privato |
+
+---
+
+## Competenze evidenziate
+
+- **System design full-stack:** desktop + web da un solo codice UI con confini backend chiari.
+- **Rust di sistema:** ingestione concorrente, vault crittografico, DSP e mixer realtime.
+- **Prodotto TypeScript/Svelte:** store reattivi, integrazione chart, UX ad alta densita informativa.
+- **Integrazione API:** Binance Spot WSS/REST, user stream firmato opzionale, bootstrap kline.
+- **Sviluppo guidato da contratto:** schema IPC versionato, test CI, disciplina camelCase/snake_case.
+- **Domain modeling:** analytics order flow (CVD, OBI, VWAP Anchor, segnali cinetici/tape) con moduli testabili.
+- **DSP audio applicato:** mapping di sonificazione, legge di pan spaziale, handoff buffer thread-safe sotto carico.
 
 ---
 
@@ -194,15 +259,6 @@ Documentazione repo privato: `CONTINUITA.md`, `AGENT_ONBOARDING.md`, `ARCHITECTT
 - Hardening DSP multi-lane e spatializzazione.
 - Harness replay per regression visive/audio.
 - Modularizzazione UI per sito istituzionale.
-
----
-
-## Sfide affrontate
-
-- Separare **frequenza WS** da **frequenza UI** senza perdere fedelta percepita.
-- **Parita metrica** HUD ↔ suono su CVD/OBI/VWAP.
-- Proteggere il callback audio da lock e allocazioni.
-- Supportare WSL/desktop (ALSA, keyring, target Cargo su disco).
 
 ---
 
