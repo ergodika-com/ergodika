@@ -10,6 +10,8 @@
 
 Ergodika transforms chaotic market data into real-time visual and sonic intelligence, so you can hear pressure shifts, read structure faster, and act with conviction when seconds matter.
 
+![Ergodika in action](desktop_screencast.gif)
+
 ## Select your language
 
 - 🇬🇧 [English](lang/README.en.md)
@@ -20,7 +22,7 @@ Ergodika transforms chaotic market data into real-time visual and sonic intellig
 
 ## For developers
 
-Senior full-stack architecture brief (how Ergodika is engineered):
+Full-stack architecture brief (how Ergodika is engineered):
 
 - [Overview](docs/ERGODIKA_FULLSTACK.md)
 - 🇬🇧 [English](docs/lang/ERGODIKA_FULLSTACK.en.md)
