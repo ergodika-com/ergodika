@@ -12,7 +12,7 @@
 
 **Full-stack** engineers who need architecture, invariants, and module boundaries — not an install tutorial.
 
-**Elevator pitch:** Ergodika is a desktop market cockpit with high-density visual analytics, live Binance ingestion, and a desktop audio MVP that **sonifies** order-flow pressure (CVD → pan, sentiment → pitch) while staying read-only toward exchanges.
+**Elevator pitch:** Ergodika is a desktop market cockpit with high-density visual analytics, live Binance ingestion, and a desktop audio MVP that **sonifies** order-flow pressure (OBI → pan, 4/4 metric grid → pitch) while staying read-only toward exchanges.
 
 ## Tech stack
 
@@ -23,7 +23,7 @@
 | Backend | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
 | Charts | **lightweight-charts** v5 |
 | Audio | **cpal**, lock-free **SPSC** (`rtrb`), realtime DSP in Rust |
-| Market data | **Binance Spot** (WSS + REST; optional read-only user stream) |
+| Market data | **Binance Spot** (WSS + REST) |
 | Security | **AES-256-GCM** vault, OS keyring |
 | Quality | **Vitest**, versioned **IPC contract** + Rust alignment tests |
 
@@ -42,7 +42,7 @@
 | [Market ingestion](#market-ingestion-desktop-vs-browser) | Binance paths, empty state, order flow |
 | [UI architecture](#ui-architecture-svelte) | Quartet cockpit, V-Matrix, charts |
 | [Audio engine](#audio-engine-desktop-mvp) | Threads, DSP pipeline, mapping, realtime |
-| [Security model](#security-model) | Vault, read-only account channel |
+| [Security model](#security-model) | Vault, read-only posture |
 | [Testing and DX](#testing-and-dx) | How quality is enforced |
 | [Impact highlights](#impact-oriented-highlights) | Why the architecture scales |
 | [Engineering challenges](#engineering-challenges-solved) | Hard problems and trade-offs |
@@ -71,7 +71,7 @@ Ergodika is a **desktop-first market cockpit** (Tauri + SvelteKit + Rust) with a
 └────────────────────────────┬─────────────────────────────────────┘
                              │ WSS + REST (official Binance endpoints)
                              ▼
-                      Binance Spot (public + optional user stream)
+                      Binance Spot (public market data)
 ```
 
 **Throughput discipline:** market math runs at full WS rate in Rust; IPC to the WebView is **signature-deduped** and **time-batched** (~20 Hz) so the UI stays responsive without inventing intermediate prices.
@@ -103,14 +103,14 @@ Typical private tree (`ergodika_app/`):
 | Area | Path (indicative) | Responsibility |
 |------|-------------------|----------------|
 | UI shell | `CockpitQuartet.svelte`, `QuartetSlotCard.svelte`, `CockpitLeftRail.svelte` | Layout, slot wiring |
-| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts` | HUD from real snapshots (`computeVMatrixSnapshot`) |
+| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts`, `scalpingScorecard.ts` | HUD from real snapshots; UI-only scalping scorecard |
 | Feed (web) | `webBinanceHub.ts`, `feedController.ts` | Binance WS when not on IPC |
 | Feed (IPC) | `ipcState.ts`, `quartet.ts` | listen + invoke, rAF batching |
 | Types | `ergodikaState.ts` | `ErgodikaState` mirror of Rust |
 | IPC contract | `ipc_contract/contract.json` | Invokes/events single source of truth |
 | Rust feed | `src-tauri/src/live_feed/` | WS, order flow, klines, emit |
 | Payload | `ergodika_payload.rs`, `market_event.rs` | Snapshot, dedup signature |
-| Account | `binance_user_stream.rs`, `credentials_vault.rs` | Vault, user stream, FIFO PnL |
+| Credentials | `credentials_vault.rs` | AES-256-GCM vault, OS keyring (BYOK when enabled) |
 | Audio | `src-tauri/src/audio_engine/` | cpal, mixer, mapping |
 | Manifest | `static/app_manifest.json` | QUARTET labels |
 
@@ -134,7 +134,7 @@ Typical private tree (`ergodika_app/`):
 
 | Mode | Source | Notes |
 |------|--------|-------|
-| `ipc` | Rust `live_feed` | Full quartet, account, klines invoke |
+| `ipc` | Rust `live_feed` | Full quartet, klines invoke |
 | `web` | `webBinanceHub` | Binance WS + REST via dev proxy `__binance` |
 | `idle` | — | Empty state, no synthetic fill-in |
 
@@ -149,13 +149,26 @@ Web parity: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, `kinetic
 
 - SvelteKit 2, Svelte 5, Tailwind 4, ultra-dark glassmorphism.
 - **QUARTET cockpit:** symmetric 2×2 grid monitoring four symbols; rail controls for timeframe, interval, and Sound.
-- **V-Matrix HUD:** six normalized market senses (price, volume, spread, unrealized PnL%, sentiment, impact) computed from **live snapshots only** via `computeVMatrixSnapshot` — no simulated tick loop on the main path.
+- **V-Matrix HUD:** normalized order-flow metrics (position in range, whale flow, spread, CVD, OBI, VWAP anchor, kinetic impact) plus **Flow Direction** labels and **Scalping score** from **live snapshots only** via `computeVMatrixSnapshot` — no simulated tick loop on the main path.
 - Stores: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
 - Charts: `lightweight-charts` v5; OHLC bootstrap cap ~10k bars; Binance-aligned interval presets.
 - Smoothing: `vmatrixSmooth.ts` — visual polish only, never a substitute for real feed data.
 - Diagnostics: `RuntimeDiagnostics.svelte` (Last frame, Snapshot age, Live ingest).
 - UI copy in **English**; docs may be multilingual.
 - **Slot model:** `quartetChartSlots` from manifest — avoid duplicate slot wiring in leaf components.
+
+### Scalping score
+
+UI-only **pre-entry scorecard** from smoothed `VMatrixSnapshot` via `computeScalpingScorecard` (`scalpingScorecard.ts`). **Not** in the Rust IPC payload; **not** a trading signal or order trigger.
+
+| Piece | Detail |
+|-------|--------|
+| Total | **0–100** from fixed weights on existing lanes |
+| Weights | Spread tightness **20**, impact stability **10**, OBI strength **15**, CVD strength + OBI/CVD coherence **20**, whale flow **10**, tape activity **25** |
+| Bands | **A** (≥80), **B** (65–79), **C** (50–64), **NO_TRADE** (<50 or gate blocked) |
+| Conservative gate | Forces **NO_TRADE** when spread is too wide (`Vs ≥ 0.82`), tape activity is too low (`activity01 ≤ 0.22`), or OBI and CVD point opposite ways |
+| UI | `VmatrixSlotColumn.svelte` — band chip, score bar, gate tooltip (`Spread too wide`, `Low tape activity`, `OBI/CVD divergence`) |
+| vs Flow Direction | **Independent** — score judges execution quality; Flow Direction labels describe aggressive buy/sell pressure consensus |
 
 ---
 
@@ -185,7 +198,7 @@ live_feed / order-flow (Rust)
 | DSP layer | Where | Notes |
 |-----------|--------|------|
 | Mapping contract | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | Lane definitions; product-owned before implementation |
-| Shipped sonification | sentiment + fundamental → **pitch**; CVD → **pan** (Blumlein) | Same Rust metrics as HUD where parity is required |
+| Shipped sonification | OBI → **pan** (Blumlein); 4/4 metric grid + slot fundamental → **pitch**; kinetic impact → strike overlay | Same Rust metrics as HUD where parity is required |
 | Backlog lanes | whale flow, OBI, reverb | Listed in mapping JSON; not in active MVP mix |
 | UI controls | `stores/audioEngine.ts`, master volume | Desktop IPC only |
 
@@ -198,9 +211,7 @@ live_feed / order-flow (Rust)
 ## Security model
 
 - Secrets never stored in clear text in the frontend.
-- AES-256-GCM + OS keyring (file fallback on WSL).
-- Binance user stream: WebSocket API v3 signed subscribe.
-- PnL from wallet + `myTrades` FIFO when coherent.
+- AES-256-GCM + OS keyring (file fallback on WSL) when BYOK credentials are enabled.
 
 ---
 
@@ -247,7 +258,7 @@ Private repo docs: `CONTINUITA.md`, `AGENT_ONBOARDING.md`, `ARCHITECTTURA_FEED_U
 - **Full-stack systems design:** dual-runtime desktop + web from a single UI codebase with clear backend boundaries.
 - **Rust systems programming:** concurrent market ingestion, cryptographic vault, realtime DSP and mixer.
 - **TypeScript/Svelte product engineering:** reactive stores, chart integration, high-information-density UX.
-- **API integration:** Binance Spot WSS/REST, optional signed user stream, kline bootstrap and interval governance.
+- **API integration:** Binance Spot WSS/REST, kline bootstrap and interval governance.
 - **Contract-driven development:** versioned IPC schema, CI alignment tests, camelCase/snake_case discipline.
 - **Domain modeling:** order-flow analytics (CVD, OBI, VWAP Anchor, kinetic/tape signals) with testable modules.
 - **Audio DSP (applied):** sonification mapping, spatial pan law, thread-safe buffer handoff under load.

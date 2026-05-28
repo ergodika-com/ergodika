@@ -17,7 +17,7 @@ Ergodika is a **desktop-first crypto market cockpit** that turns live order flow
 | Backend | **Rust** (`live_feed`, `credentials`, `audio_engine`) |
 | Charts | **lightweight-charts** v5 |
 | Audio I/O | **cpal**, lock-free **SPSC** queues, realtime DSP in Rust |
-| Market data | **Binance Spot** (WSS + REST; optional read-only user stream) |
+| Market data | **Binance Spot** (WSS + REST) |
 | Security | **AES-256-GCM** vault, OS keyring (file fallback on WSL) |
 | Quality | **Vitest**, schema-first **IPC contract** + Rust alignment tests |
 
@@ -26,7 +26,7 @@ Ergodika is a **desktop-first crypto market cockpit** that turns live order flow
 - Runtime architecture (desktop vs silent browser demo)
 - Design invariants (no fake market data, read-only, IPC contract)
 - Repository map for the private application tree
-- Market ingestion, order-flow metrics, UI (Quartet + V-Matrix)
+- Market ingestion, order-flow metrics, UI (Quartet + V-Matrix + **Scalping score**)
 - **Rust audio DSP pipeline** (desktop MVP): threads, mapping, realtime constraints
 - Security model, testing, engineering highlights, roadmap
 

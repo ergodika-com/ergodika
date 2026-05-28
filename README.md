@@ -35,9 +35,9 @@ Full-stack architecture brief (how Ergodika is engineered):
 
 - Real-time cockpit for crypto spot market monitoring
 - Order-flow intelligence: CVD, OBI, VWAP Anchor, Kinetic Impact
+- **Scalping score** (0–100): compact pre-entry execution-quality readout in the V-Matrix
 - Quartet visual matrix for multi-asset context
 - Desktop audio MVP for passive market awareness
-- Optional exchange account integration with local encrypted storage
 - Read-only design for monitoring workflows
 
 ## Important notice

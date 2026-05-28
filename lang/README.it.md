@@ -16,6 +16,7 @@ Senti i cambi di pressione, leggi piu velocemente la struttura e agisci con deci
 - Monitoraggio crypto spot in tempo reale
 - Intelligenza order flow (CVD, OBI, VWAP Anchor)
 - Segnali di attivita di mercato (Kinetic Impact)
+- **Scalping score** (0–100): lettura compatta sulla qualita di esecuzione pre-entry nella V-Matrix
 - Layout Quartet per quattro asset monitorati
 - Grafici leggeri e diagnostica focalizzata
 - Audio desktop MVP per monitoraggio passivo
@@ -26,13 +27,10 @@ Senti i cambi di pressione, leggi piu velocemente la struttura e agisci con deci
 - Aiuta a riconoscere prima i cambi di regime
 - Mantiene un flusso operativo disciplinato in un'unica plancia
 
-## Sicurezza e modello account
+## Sicurezza
 
-- La connessione exchange e opzionale
-- Credenziali protette in locale con cifratura
 - Modello read-only per monitoraggio, per progettazione
-
-Usa solo il tuo account e verifica gli obblighi legali nel tuo Paese.
+- Nessuna connessione account exchange richiesta per usare il cockpit
 
 ## Come iniziare
 
@@ -40,7 +38,6 @@ Usa solo il tuo account e verifica gli obblighi legali nel tuo Paese.
 2. Installa le dipendenze e avvia l'app.
 3. Usa la modalita desktop per l'esperienza completa.
 4. Configura simboli e layout.
-5. Collega opzionalmente l'account exchange per metriche account-aware.
 
 ## Avviso rischio
 

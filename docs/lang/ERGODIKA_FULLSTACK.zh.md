@@ -12,7 +12,7 @@
 
 需要掌握架构、不变量与模块边界的 **全栈工程师** — 非安装教程。
 
-**一句话：** 桌面端市场驾驶舱，高密度可视化、Binance 实时数据，以及将订单流压力 **声音化** 的桌面音频 MVP（CVD → 声像，sentiment → 音高），对交易所保持只读。
+**一句话：** 桌面端市场驾驶舱，高密度可视化、Binance 实时数据，以及将订单流压力 **声音化** 的桌面音频 MVP（OBI → 声像，4/4 度量网格 → 音高），对交易所保持只读。
 
 ## 技术栈
 
@@ -23,7 +23,7 @@
 | 后端 | **Rust** — `live_feed/`、`credentials/`、`audio_engine/` |
 | 图表 | **lightweight-charts** v5 |
 | 音频 | **cpal**、无锁 **SPSC**（`rtrb`）、Rust 实时 DSP |
-| 行情 | **Binance 现货**（WSS + REST；可选只读用户流） |
+| 行情 | **Binance 现货**（WSS + REST） |
 | 安全 | **AES-256-GCM** 保险库、系统钥匙串 |
 | 质量 | **Vitest**、版本化 **IPC 契约** + Rust 对齐测试 |
 
@@ -42,7 +42,7 @@
 | [行情接入](#行情接入桌面-vs-浏览器) | Binance、空状态、订单流 |
 | [UI 架构](#ui-架构svelte) | Quartet、V-Matrix、图表 |
 | [音频引擎](#音频引擎桌面-mvp) | 线程、DSP 管线、映射 |
-| [安全模型](#安全模型) | Vault、只读账户 |
+| [安全模型](#安全模型) | Vault、只读架构 |
 | [测试与 DX](#测试与-dx) | 质量保障 |
 | [工程亮点](#工程亮点) | 可扩展性 |
 | [工程挑战](#已解决的工程挑战) | 难点与权衡 |
@@ -103,14 +103,14 @@
 | 区域 | 路径（示意） | 职责 |
 |------|-------------|------|
 | UI 外壳 | `CockpitQuartet.svelte` 等 | 布局与槽位 |
-| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts` | 由真实快照计算 HUD |
+| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts`, `scalpingScorecard.ts` | 由真实快照计算 HUD；仅 UI 的 scalping scorecard |
 | Web 行情 | `webBinanceHub.ts` | 非 IPC 时 Binance WS |
 | IPC 行情 | `ipcState.ts`, `quartet.ts` | listen + invoke |
 | 类型 | `ergodikaState.ts` | 与 Rust 对齐 |
 | IPC 契约 | `ipc_contract/contract.json` | 命令/事件单一来源 |
 | Rust feed | `live_feed/` | WS、订单流、K 线 |
 | 载荷 | `ergodika_payload.rs` | 去重签名 |
-| 账户 | `credentials_vault.rs` | 加密与只读流 |
+| 凭据 | `credentials_vault.rs` | AES-256-GCM 保险库、系统钥匙串（启用 BYOK 时） |
 | 音频 | `audio_engine/` | cpal、混音 |
 | Manifest | `app_manifest.json` | QUARTET 配置 |
 
@@ -149,12 +149,25 @@ Web 对齐：`orderFlowMath.ts`、`cvdSessionScale.ts`、`vwapSession.ts`、`kin
 
 - SvelteKit 2、Svelte 5、Tailwind 4，超暗玻璃拟态主题。
 - **QUARTET 驾驶舱：** 2×2 四品种监控；侧栏控制周期、K 线间隔与 Sound。
-- **V-Matrix HUD：** 六种归一化市场维度，仅由 **实时快照** 经 `computeVMatrixSnapshot` 计算，主路径无模拟 tick 循环。
+- **V-Matrix HUD：** 归一化 order-flow 指标（position in range、whale flow、spread、CVD、OBI、VWAP anchor、kinetic impact）、**Flow Direction** 标签与 **Scalping score**，仅由 **实时快照** 经 `computeVMatrixSnapshot` 计算，主路径无模拟 tick 循环。
 - Store：`quartet.ts`、`feedController`、`audioEngine.ts`、`masterTempo.ts`。
 - 图表：`lightweight-charts` v5；OHLC 引导上限约 1 万根 K 线。
 - `vmatrixSmooth.ts` 仅作视觉平滑，不替代真实行情。
 - 诊断：`RuntimeDiagnostics.svelte`。界面文案为 **英文**。
 - 槽位：通过 `quartetChartSlots` 与 manifest 统一布线。
+
+### Scalping score
+
+仅 UI 的 **pre-entry scorecard**：由平滑后的 `VMatrixSnapshot` 经 `computeScalpingScorecard`（`scalpingScorecard.ts`）计算。**不在** Rust IPC 载荷中；**不是**交易信号或下单触发。
+
+| 项 | 说明 |
+|----|------|
+| 总分 | **0–100**，对现有 lane 固定加权 |
+| 权重 | 点差紧度 **20**、impact 稳定 **10**、OBI **15**、CVD + OBI/CVD 一致性 **20**、whale flow **10**、tape activity **25** |
+| 档位 | **A**（≥80）、**B**（65–79）、**C**（50–64）、**NO_TRADE**（<50 或 gate 拦截） |
+| 保守 gate | spread 过宽（`Vs ≥ 0.82`）、activity 过低（`activity01 ≤ 0.22`）或 OBI/CVD 反向时强制 **NO_TRADE** |
+| UI | `VmatrixSlotColumn.svelte` |
+| 与 Flow Direction | **独立** — score 评执行质量；Flow Direction 评主动买卖压力共识 |
 
 ---
 
@@ -184,7 +197,7 @@ live_feed / 订单流 (Rust)
 | DSP 层 | 位置 | 说明 |
 |--------|------|------|
 | 映射契约 | `audio_mapping.json`、`docs/AUDIO_ENGINE.md` | Lane 由产品确认后再实现 |
-| 已上线声化 | sentiment + 基频 → **音高**；CVD → **声像**（Blumlein） | 与 HUD 所需指标保持 Rust 侧一致 |
+| 已上线声化 | OBI → **声像**（Blumlein）；4/4 度量网格 + 槽位基频 → **音高**；kinetic impact → strike overlay | 与 HUD 所需指标保持 Rust 侧一致 |
 | 待办 lane | whale、OBI、reverb | 写在 mapping JSON；未进入当前 MVP 混音 |
 | UI 控制 | `stores/audioEngine.ts`、主音量 | 仅桌面 IPC |
 
@@ -196,7 +209,7 @@ live_feed / 订单流 (Rust)
 
 ## 安全模型
 
-前端不存明文密钥；AES-256-GCM + 系统钥匙串；Binance WebSocket API v3 签名订阅；PnL 来自钱包与 FIFO `myTrades`（数据一致时）。
+前端不存明文密钥；启用 BYOK 时使用 AES-256-GCM + 系统钥匙串（WSL 文件回退）。
 
 ---
 

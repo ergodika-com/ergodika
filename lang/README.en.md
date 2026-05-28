@@ -16,6 +16,7 @@ Hear pressure shifts, read structure faster, and act with conviction when second
 - Real-time crypto market monitoring
 - Order-flow intelligence (CVD, OBI, VWAP Anchor)
 - Kinetic market activity signals
+- **Scalping score** (0–100): compact pre-entry execution-quality readout in the V-Matrix
 - Quartet cockpit layout for four tracked assets
 - Lightweight charts and focused diagnostic feedback
 - Desktop audio MVP for passive monitoring
@@ -26,13 +27,10 @@ Hear pressure shifts, read structure faster, and act with conviction when second
 - Detect regime changes earlier with multi-signal context
 - Keep a disciplined monitoring workflow in one cockpit
 
-## Security and account model
+## Security
 
-- Exchange connection is optional
-- Local credential protection with encrypted storage
 - Read-only monitoring model by design
-
-Always use your own account and verify your local legal obligations.
+- No exchange account connection required to use the cockpit
 
 ## Getting started
 
@@ -40,7 +38,6 @@ Always use your own account and verify your local legal obligations.
 2. Install dependencies and run the application.
 3. Open desktop mode for the full experience.
 4. Configure your symbols and layout.
-5. Optionally connect your exchange account for account-aware metrics.
 
 ## Risk disclaimer
 

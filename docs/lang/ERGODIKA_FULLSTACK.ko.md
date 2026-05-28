@@ -12,7 +12,7 @@
 
 아키텍처, 불변 조건, 모듈 경계가 필요한 **풀스택** 엔지니어 — 설치 튜토리얼이 아닙니다.
 
-**한 줄 요약:** 데스크톱 마켓 콕핏, 고밀도 시각 분석, Binance 라이브 수집, 오더플로우 압력을 **소리로 표현**하는 데스크톱 오디오 MVP(CVD → pan, sentiment → pitch), 거래소에는 read-only.
+**한 줄 요약:** 데스크톱 마켓 콕핏, 고밀도 시각 분석, Binance 라이브 수집, 오더플로우 압력을 **소리로 표현**하는 데스크톱 오디오 MVP(OBI → pan, 4/4 메트릭 그리드 → pitch), 거래소에는 read-only.
 
 ## 기술 스택
 
@@ -23,7 +23,7 @@
 | 백엔드 | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
 | 차트 | **lightweight-charts** v5 |
 | 오디오 | **cpal**, lock-free **SPSC**(`rtrb`), Rust 실시간 DSP |
-| 시장 데이터 | **Binance Spot**(WSS+REST, 선택적 read-only user stream) |
+| 시장 데이터 | **Binance Spot**(WSS+REST) |
 | 보안 | **AES-256-GCM** vault, OS keyring |
 | 품질 | **Vitest**, 버전 IPC 계약 + Rust 정렬 테스트 |
 
@@ -103,7 +103,7 @@
 | 영역 | 경로 | 역할 |
 |------|------|------|
 | UI | `CockpitQuartet.svelte` 등 | 레이아웃 |
-| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts` | 실제 스냅샷 HUD |
+| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts`, `scalpingScorecard.ts` | 실제 스냅샷 HUD; UI 전용 scalping scorecard |
 | Web feed | `webBinanceHub.ts` | IPC 없을 때 WS |
 | IPC feed | `ipcState.ts`, `quartet.ts` | listen + invoke |
 | 타입 | `ergodikaState.ts` | Rust 미러 |
@@ -146,12 +146,25 @@ Web parity: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, `kinetic
 
 - SvelteKit 2, Svelte 5, Tailwind 4, ultra-dark glassmorphism.
 - **QUARTET 콕핏:** 2×2 네 심볼; timeframe·interval·Sound 레일.
-- **V-Matrix HUD:** 여섯 정규화 시장 감각, **라이브 스냅샷**만으로 `computeVMatrixSnapshot` — 메인 경로에 시뮬 tick 없음.
+- **V-Matrix HUD:** position in range, whale flow, spread, CVD, OBI, VWAP anchor, kinetic impact 등 정규화 order-flow 메트릭, **Flow Direction** 라벨, **Scalping score** — **라이브 스냅샷**만으로 `computeVMatrixSnapshot`, 메인 경로에 시뮬 tick 없음.
 - Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
 - 차트: `lightweight-charts` v5; OHLC 부트스트랩 ~10k.
 - `vmatrixSmooth.ts`는 시각 폴리시만.
 - 진단: `RuntimeDiagnostics.svelte`. UI 문구 **영어**.
 - 슬롯: `quartetChartSlots` + manifest.
+
+### Scalping score
+
+UI 전용 **pre-entry scorecard**: 스무딩된 `VMatrixSnapshot`을 `computeScalpingScorecard`(`scalpingScorecard.ts`)로 계산. Rust IPC payload **미포함**; **거래 신호 아님**.
+
+| 항목 | 내용 |
+|------|------|
+| 총점 | **0–100**, lane 고정 가중치 |
+| 가중치 | spread **20**, impact stability **10**, OBI **15**, CVD + OBI/CVD 일치 **20**, whale flow **10**, tape activity **25** |
+| 밴드 | **A**(≥80), **B**(65–79), **C**(50–64), **NO_TRADE**(<50 또는 gate) |
+| 보수 gate | spread 과도(`Vs ≥ 0.82`), activity 저하(`activity01 ≤ 0.22`), OBI/CVD 역방향 시 **NO_TRADE** |
+| UI | `VmatrixSlotColumn.svelte` |
+| vs Flow Direction | **독립** — score는 실행 품질; Flow Direction은 공격적 매수/매도 압력 합의 |
 
 ---
 
@@ -181,7 +194,7 @@ live_feed / order-flow (Rust)
 | DSP 계층 | 위치 | 비고 |
 |----------|------|------|
 | 매핑 계약 | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | lane은 제품 결정 후 구현 |
-| 출시 sonification | sentiment + fundamental → **pitch**; CVD → **pan**(Blumlein) | HUD와 동일 Rust 지표(필요 시) |
+| 출시 sonification | OBI → **pan**(Blumlein); 4/4 메트릭 그리드 + 슬롯 fundamental → **pitch**; kinetic impact → strike overlay | HUD와 동일 Rust 지표(필요 시) |
 | 백로그 lane | whale, OBI, reverb | mapping JSON에만; 현재 MVP 믹스 미포함 |
 | UI 제어 | `stores/audioEngine.ts`, 마스터 볼륨 | 데스크톱 IPC만 |
 
@@ -193,7 +206,7 @@ live_feed / order-flow (Rust)
 
 ## 보안 모델
 
-AES-256-GCM, OS keyring, Binance WS API v3, FIFO PnL(데이터 일치 시).
+프론트엔드에 평문 시크릿 없음; BYOK 활성화 시 AES-256-GCM + OS keyring(WSL 파일 fallback).
 
 ---
 
@@ -234,7 +247,7 @@ Vitest, `cargo test --lib ipc_contract`, `npm run start` / `start:web`.
 - **풀스택 시스템 설계:** 단일 UI로 데스크톱+무음 웹, 백엔드 경계 명확.
 - **Rust:** 동시 ingestion, 암호 vault, 실시간 DSP/믹서.
 - **TypeScript/Svelte:** 반응형 store, 차트, 고밀도 UX.
-- **API 통합:** Binance Spot WSS/REST, 선택 signed user stream.
+- **API 통합:** Binance Spot WSS/REST, K-line bootstrap.
 - **계약 주도 개발:** 버전 IPC, CI alignment tests.
 - **도메인 모델링:** CVD, OBI, VWAP Anchor, kinetic/tape 신호.
 - **응용 오디오 DSP:** sonification mapping, spatial pan, thread-safe handoff.

@@ -12,7 +12,7 @@
 
 Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei moduli — non un tutorial di installazione.
 
-**Elevator pitch:** Ergodika e un cockpit desktop con analisi visiva ad alta densita, ingestione live Binance e audio MVP che **sonifica** la pressione di order flow (CVD → pan, sentiment → pitch), in modalita read-only verso l'exchange.
+**Elevator pitch:** Ergodika e un cockpit desktop con analisi visiva ad alta densita, ingestione live Binance e audio MVP che **sonifica** la pressione di order flow (OBI → pan, griglia metrica 4/4 → pitch), in modalita read-only verso l'exchange.
 
 ## Stack tecnologico
 
@@ -23,7 +23,7 @@ Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei m
 | Backend | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
 | Chart | **lightweight-charts** v5 |
 | Audio | **cpal**, code **SPSC** lock-free (`rtrb`), DSP realtime in Rust |
-| Mercato | **Binance Spot** (WSS + REST; user stream read-only opzionale) |
+| Mercato | **Binance Spot** (WSS + REST) |
 | Sicurezza | Vault **AES-256-GCM**, keyring OS |
 | Qualita | **Vitest**, contratto **IPC** versionato + test di allineamento Rust |
 
@@ -42,7 +42,7 @@ Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei m
 | [Ingestione mercato](#ingestione-mercato-desktop-vs-browser) | Binance, stato vuoto, order flow |
 | [Architettura UI](#architettura-ui-svelte) | Cockpit Quartet, V-Matrix, chart |
 | [Motore audio](#motore-audio-mvp-desktop) | Thread, pipeline DSP, mapping, realtime |
-| [Sicurezza](#modello-di-sicurezza) | Vault, canale account read-only |
+| [Sicurezza](#modello-di-sicurezza) | Vault, posture read-only |
 | [Test e DX](#test-e-dx) | Qualita e tooling |
 | [Highlight](#highlight-orientati-allimpatto) | Perche scala |
 | [Sfide affrontate](#sfide-affrontate) | Problemi difficili e trade-off |
@@ -71,7 +71,7 @@ Ergodika e un **cockpit desktop-first** (Tauri + SvelteKit + Rust) con **demo br
 └────────────────────────────┬─────────────────────────────────────┘
                              │ WSS + REST (endpoint ufficiali Binance)
                              ▼
-                      Binance Spot (pubblico + user stream opzionale)
+                      Binance Spot (dati pubblici di mercato)
 ```
 
 **Disciplina di throughput:** il calcolo mercato gira a frequenza WS piena in Rust; l'IPC verso la WebView e **deduplicato per firma** e **batchato nel tempo** (~20 Hz) senza inventare prezzi intermedi.
@@ -103,14 +103,14 @@ Tree tipico privato (`ergodika_app/`):
 | Area | Percorso (indicativo) | Ruolo |
 |------|----------------------|--------|
 | UI shell | `CockpitQuartet.svelte`, `QuartetSlotCard.svelte`, `CockpitLeftRail.svelte` | Layout, slot |
-| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts` | HUD da snapshot reali |
+| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts`, `scalpingScorecard.ts` | HUD da snapshot reali; scorecard scalping solo UI |
 | Feed web | `webBinanceHub.ts`, `feedController.ts` | WS Binance senza IPC |
 | Feed IPC | `ipcState.ts`, `quartet.ts` | listen + invoke, batch rAF |
 | Tipi | `ergodikaState.ts` | Mirror payload Rust |
 | Contratto IPC | `ipc_contract/contract.json` | Fonte unica invoke/eventi |
 | Feed Rust | `src-tauri/src/live_feed/` | WS, order flow, klines |
 | Payload | `ergodika_payload.rs`, `market_event.rs` | Snapshot, firma dedup |
-| Account | `binance_user_stream.rs`, `credentials_vault.rs` | Vault, stream utente |
+| Credenziali | `credentials_vault.rs` | Vault AES-256-GCM, keyring OS (BYOK se abilitato) |
 | Audio | `src-tauri/src/audio_engine/` | cpal, mixer, mapping |
 | Manifest | `static/app_manifest.json` | Etichette QUARTET |
 
@@ -134,7 +134,7 @@ Tree tipico privato (`ergodika_app/`):
 
 | Modalita | Sorgente | Note |
 |----------|----------|------|
-| `ipc` | `live_feed` Rust | Quartet completo, account, klines |
+| `ipc` | `live_feed` Rust | Quartet completo, klines |
 | `web` | `webBinanceHub` | WS Binance + REST via proxy `__binance` |
 | `idle` | — | Stato vuoto, niente fill-in sintetico |
 
@@ -149,13 +149,26 @@ Parita web: `orderFlowMath.ts`, `cvdSessionScale.ts`, `vwapSession.ts`, ecc.
 
 - SvelteKit 2, Svelte 5, Tailwind 4, tema ultra-dark.
 - **Cockpit QUARTET:** griglia 2×2 su quattro simboli; rail per timeframe, intervallo e Sound.
-- **HUD V-Matrix:** sei sensi di mercato normalizzati (prezzo, volume, spread, PnL% non realizzato, sentiment, impact) da **snapshot live** con `computeVMatrixSnapshot` — nessun loop di tick simulato sul path principale.
+- **HUD V-Matrix:** metriche order-flow normalizzate (position in range, whale flow, spread, CVD, OBI, VWAP anchor, kinetic impact) + etichette **Flow Direction** e **Scalping score** da **snapshot live** con `computeVMatrixSnapshot` — nessun loop di tick simulato sul path principale.
 - Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
 - Chart: `lightweight-charts` v5; bootstrap OHLC ~10k barre; preset intervallo allineati a Binance.
 - Smoothing: `vmatrixSmooth.ts` — solo polish visivo, mai sostituto del feed reale.
 - Diagnostica: `RuntimeDiagnostics.svelte` (Last frame, eta snapshot, Live ingest).
 - Copy UI in **inglese**; documentazione multilingua ammessa.
 - **Slot:** derivare wiring da `quartetChartSlots` + manifest.
+
+### Scalping score
+
+Scorecard UI **pre-entry** da `VMatrixSnapshot` smussato via `computeScalpingScorecard` (`scalpingScorecard.ts`). **Non** e nel payload IPC Rust; **non** e segnale di trading ne trigger ordini.
+
+| Pezzo | Dettaglio |
+|-------|-----------|
+| Totale | **0–100** con pesi fissi sulle lane gia visibili |
+| Pesi | Spread tightness **20**, impact stability **10**, OBI **15**, CVD + coerenza OBI/CVD **20**, whale flow **10**, activity tape **25** |
+| Bande | **A** (≥80), **B** (65–79), **C** (50–64), **NO_TRADE** (<50 o gate attivo) |
+| Gate conservativo | Forza **NO_TRADE** se spread troppo largo (`Vs ≥ 0.82`), activity bassa (`activity01 ≤ 0.22`), o OBI e CVD in direzioni opposte |
+| UI | `VmatrixSlotColumn.svelte` — chip banda, barra punteggio, tooltip gate |
+| vs Flow Direction | **Indipendente** — lo score valuta qualita esecuzione; Flow Direction descrive consenso pressione buy/sell aggressiva |
 
 ---
 
@@ -185,7 +198,7 @@ live_feed / order-flow (Rust)
 | Layer DSP | Dove | Note |
 |-----------|------|------|
 | Contratto mapping | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | Lane definite dal prodotto prima dell'implementazione |
-| Sonificazione spedita | sentiment + fondamentale → **pitch**; CVD → **pan** (Blumlein) | Stesse metriche Rust dell'HUD dove serve parita |
+| Sonificazione spedita | OBI → **pan** (Blumlein); griglia metrica 4/4 + fondamentale slot → **pitch**; kinetic impact → strike overlay | Stesse metriche Rust dell'HUD dove serve parita |
 | Lane in backlog | whale flow, OBI, reverb | In mapping JSON; non nel mix MVP attivo |
 | Controlli UI | `stores/audioEngine.ts`, volume master | Solo IPC desktop |
 
@@ -198,9 +211,7 @@ live_feed / order-flow (Rust)
 ## Modello di sicurezza
 
 - Secret mai in chiaro nel frontend.
-- AES-256-GCM + keyring OS (fallback file su WSL).
-- User stream Binance: WebSocket API v3 con subscribe firmato.
-- PnL da wallet + FIFO `myTrades` quando coerente.
+- AES-256-GCM + keyring OS (fallback file su WSL) quando le credenziali BYOK sono abilitate.
 
 ---
 
@@ -247,7 +258,7 @@ Documentazione repo privato: `CONTINUITA.md`, `AGENT_ONBOARDING.md`, `ARCHITECTT
 - **System design full-stack:** desktop + web da un solo codice UI con confini backend chiari.
 - **Rust di sistema:** ingestione concorrente, vault crittografico, DSP e mixer realtime.
 - **Prodotto TypeScript/Svelte:** store reattivi, integrazione chart, UX ad alta densita informativa.
-- **Integrazione API:** Binance Spot WSS/REST, user stream firmato opzionale, bootstrap kline.
+- **Integrazione API:** Binance Spot WSS/REST, bootstrap kline.
 - **Sviluppo guidato da contratto:** schema IPC versionato, test CI, disciplina camelCase/snake_case.
 - **Domain modeling:** analytics order flow (CVD, OBI, VWAP Anchor, segnali cinetici/tape) con moduli testabili.
 - **DSP audio applicato:** mapping di sonificazione, legge di pan spaziale, handoff buffer thread-safe sotto carico.

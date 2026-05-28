@@ -12,7 +12,7 @@
 
 **Full-stack** инженеры: архитектура, инварианты, границы модулей — не установочный туториал.
 
-**Суть:** desktop cockpit с плотной визуальной аналитикой, live Binance и MVP аудио, который **озвучивает** давление order flow (CVD → pan, sentiment → pitch) в режиме read-only к бирже.
+**Суть:** desktop cockpit с плотной визуальной аналитикой, live Binance и MVP аудио, который **озвучивает** давление order flow (OBI → pan, сетка 4/4 → pitch) в режиме read-only к бирже.
 
 ## Технологический стек
 
@@ -23,7 +23,7 @@
 | Backend | **Rust** — `live_feed/`, `credentials/`, `audio_engine/` |
 | Графики | **lightweight-charts** v5 |
 | Аудио | **cpal**, lock-free **SPSC** (`rtrb`), realtime DSP в Rust |
-| Рынок | **Binance Spot** (WSS + REST; опциональный read-only user stream) |
+| Рынок | **Binance Spot** (WSS + REST) |
 | Безопасность | Vault **AES-256-GCM**, OS keyring |
 | Качество | **Vitest**, версионированный **IPC** + alignment-тесты |
 
@@ -103,14 +103,14 @@
 | Область | Путь | Задача |
 |---------|------|--------|
 | UI | `CockpitQuartet.svelte`, `QuartetSlotCard.svelte` | Layout |
-| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts` | HUD из реальных snapshot |
+| V-Matrix | `Vmatrix*.svelte`, `marketSim.ts`, `scalpingScorecard.ts` | HUD из snapshot; UI-only scalping scorecard |
 | Feed web | `webBinanceHub.ts`, `feedController.ts` | WS без IPC |
 | Feed IPC | `ipcState.ts`, `quartet.ts` | listen + invoke |
 | Типы | `ergodikaState.ts` | Зеркало Rust payload |
 | IPC | `ipc_contract/contract.json` | Единый контракт |
 | Rust feed | `src-tauri/src/live_feed/` | WS, order flow |
 | Payload | `ergodika_payload.rs` | Подпись dedup |
-| Account | `credentials_vault.rs` | Шифрование |
+| Credentials | `credentials_vault.rs` | AES-256-GCM vault, OS keyring (BYOK при включении) |
 | Audio | `audio_engine/` | cpal, mixer |
 | Manifest | `app_manifest.json` | QUARTET |
 
@@ -149,12 +149,25 @@ Rust: `order_flow_delta_analyzer`, `cvd_session_scale`, `vwap_session`, `kinetic
 
 - SvelteKit 2, Svelte 5, Tailwind 4, ultra-dark glassmorphism.
 - **QUARTET cockpit:** сетка 2×2 на четыре символа; rail для timeframe, interval, Sound.
-- **V-Matrix HUD:** шесть нормализованных «чувств» рынка из **живых snapshot** (`computeVMatrixSnapshot`) — без симулированного tick-loop на main path.
+- **V-Matrix HUD:** нормализованные метрики order flow (position in range, whale flow, spread, CVD, OBI, VWAP anchor, kinetic impact), метки **Flow Direction** и **Scalping score** из **живых snapshot** (`computeVMatrixSnapshot`) — без симулированного tick-loop на main path.
 - Store: `quartet.ts`, `feedController`, `audioEngine.ts`, `masterTempo.ts`.
 - Графики: `lightweight-charts` v5; bootstrap OHLC до ~10k баров.
 - Smoothing: `vmatrixSmooth.ts` — только визуальный polish.
 - Диагностика: `RuntimeDiagnostics.svelte`. UI на **английском**.
 - **Слоты:** wiring через `quartetChartSlots` + manifest.
+
+### Scalping score
+
+UI-only **pre-entry scorecard** из сглаженного `VMatrixSnapshot` через `computeScalpingScorecard` (`scalpingScorecard.ts`). **Не** в Rust IPC payload; **не** торговый сигнал.
+
+| Элемент | Детали |
+|---------|--------|
+| Итог | **0–100** с фиксированными весами lane |
+| Веса | Spread **20**, impact stability **10**, OBI **15**, CVD + согласованность OBI/CVD **20**, whale flow **10**, tape activity **25** |
+| Полосы | **A** (≥80), **B** (65–79), **C** (50–64), **NO_TRADE** (<50 или gate) |
+| Gate | **NO_TRADE** при широком spread (`Vs ≥ 0.82`), низкой activity (`activity01 ≤ 0.22`) или расхождении OBI/CVD |
+| UI | `VmatrixSlotColumn.svelte` |
+| vs Flow Direction | **Независимы** — score = качество исполнения; Flow Direction = консенсус агрессивного потока |
 
 ---
 
@@ -184,7 +197,7 @@ live_feed / order-flow (Rust)
 | Слой DSP | Где | Заметки |
 |----------|-----|---------|
 | Контракт mapping | `audio_mapping.json`, `docs/AUDIO_ENGINE.md` | Lane по решению продукта |
-| В проде | sentiment + fundamental → **pitch**; CVD → **pan** (Blumlein) | Паритет с HUD на тех же метриках |
+| В проде | OBI → **pan** (Blumlein); сетка 4/4 + fundamental слота → **pitch**; kinetic impact → strike overlay | Паритет с HUD на тех же метриках |
 | Backlog | whale, OBI, reverb | В JSON mapping; не в активном MVP mix |
 | UI | `stores/audioEngine.ts`, master volume | Только desktop IPC |
 
@@ -196,7 +209,7 @@ live_feed / order-flow (Rust)
 
 ## Модель безопасности
 
-AES-256-GCM, keyring OS, WebSocket API v3 Binance, FIFO PnL когда данные согласованы.
+Секреты не хранятся в открытом виде во frontend; AES-256-GCM + OS keyring (fallback на WSL) при включённом BYOK.
 
 ---
 
@@ -237,7 +250,7 @@ Vitest, `cargo test --lib ipc_contract`, `npm run start` / `start:web`.
 - **Full-stack system design:** desktop + web из одного UI с чёткими границами backend.
 - **Rust:** конкурентный ingestion, криптографический vault, realtime DSP/mixer.
 - **TypeScript/Svelte:** реактивные store, charts, UX высокой плотности информации.
-- **API integration:** Binance Spot WSS/REST, опциональный signed user stream.
+- **API integration:** Binance Spot WSS/REST, bootstrap kline.
 - **Contract-driven dev:** версионированный IPC, CI alignment tests.
 - **Domain modeling:** CVD, OBI, VWAP Anchor, kinetic/tape signals.
 - **Applied audio DSP:** sonification mapping, spatial pan, thread-safe handoff.
