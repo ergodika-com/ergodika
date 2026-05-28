@@ -1,4 +1,4 @@
-# Ergodika for Senior Full-Stack Developers
+# Ergodika for Full-Stack Developers
 
 ![Language](https://img.shields.io/badge/Language-English-2563eb?style=flat-square)
 
@@ -6,11 +6,11 @@
 
 [← Back to docs index](../ERGODIKA_FULLSTACK.md)
 
-> Public architecture brief. Explains **how Ergodika was built** so a senior developer can reason about design before reading every file in the private repository.
+> Public architecture brief. Explains **how Ergodika was built** so a developer can reason about design before reading every file in the private repository.
 
 ## Who this is for
 
-Senior **full-stack** engineers who need architecture, invariants, and module boundaries — not an install tutorial.
+**Full-stack** engineers who need architecture, invariants, and module boundaries — not an install tutorial.
 
 **Elevator pitch:** Ergodika is a desktop market cockpit with high-density visual analytics, live Binance ingestion, and a desktop audio MVP that **sonifies** order-flow pressure (CVD → pan, sentiment → pitch) while staying read-only toward exchanges.
 

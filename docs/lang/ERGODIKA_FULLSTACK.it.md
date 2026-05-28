@@ -1,4 +1,4 @@
-# Ergodika per sviluppatori Senior Full-Stack
+# Ergodika per sviluppatori Full-Stack
 
 ![Lingua](https://img.shields.io/badge/Lingua-Italiano-16a34a?style=flat-square)
 
@@ -6,11 +6,11 @@
 
 [← Torna all'indice](../ERGODIKA_FULLSTACK.md)
 
-> Brief architetturale pubblico. Spiega **come e stato programmato Ergodika** cosi un senior puo capire il design prima di leggere ogni file del repository privato.
+> Brief architetturale pubblico. Spiega **come e stato programmato Ergodika** cosi uno sviluppatore puo capire il design prima di leggere ogni file del repository privato.
 
 ## A chi serve
 
-Sviluppatori **full-stack senior** che cercano architettura, invarianti e confini dei moduli — non un tutorial di installazione.
+Sviluppatori **full-stack** che cercano architettura, invarianti e confini dei moduli — non un tutorial di installazione.
 
 **Elevator pitch:** Ergodika e un cockpit desktop con analisi visiva ad alta densita, ingestione live Binance e audio MVP che **sonifica** la pressione di order flow (CVD → pan, sentiment → pitch), in modalita read-only verso l'exchange.
 
@@ -197,7 +197,7 @@ Documentazione repo privato: `CONTINUITA.md`, `AGENT_ONBOARDING.md`, `ARCHITECTT
 
 ---
 
-## Sfide affrontate (da senior a senior)
+## Sfide affrontate
 
 - Separare **frequenza WS** da **frequenza UI** senza perdere fedelta percepita.
 - **Parita metrica** HUD ↔ suono su CVD/OBI/VWAP.

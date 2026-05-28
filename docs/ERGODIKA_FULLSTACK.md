@@ -1,6 +1,6 @@
-# Ergodika for Senior Full-Stack Developers
+# Ergodika for Full-Stack Developers
 
-> **Public architecture brief.** The application source (SvelteKit + Tauri + Rust) lives in the private codebase. These guides explain **how Ergodika is engineered** for senior contributors.
+> **Public architecture brief.** The application source (SvelteKit + Tauri + Rust) lives in the private codebase. These guides explain **how Ergodika is engineered** for contributors.
 
 ## Select your language
 
