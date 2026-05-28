@@ -22,7 +22,12 @@ Ergodika transforms chaotic market data into real-time visual and sonic intellig
 
 Senior full-stack architecture brief (how Ergodika is engineered):
 
-- [Ergodika for Senior Full-Stack Developers](docs/ERGODIKA_FOR_SENIOR_FULLSTACK.md)
+- [Overview](docs/ERGODIKA_FULLSTACK.md)
+- 🇬🇧 [English](docs/lang/ERGODIKA_FULLSTACK.en.md)
+- 🇮🇹 [Italiano](docs/lang/ERGODIKA_FULLSTACK.it.md)
+- 🇷🇺 [Русский](docs/lang/ERGODIKA_FULLSTACK.ru.md)
+- 🇨🇳 [中文](docs/lang/ERGODIKA_FULLSTACK.zh.md)
+- 🇰🇷 [한국어](docs/lang/ERGODIKA_FULLSTACK.ko.md)
 
 ## Product highlights
 
